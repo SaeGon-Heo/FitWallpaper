@@ -9,8 +9,10 @@ Windows light application for change wallpaper periodically
 * __This program don't support multiple display__
 
 # Requirements
-[Microsoft Visual Studio Community 2019](https://visualstudio.microsoft.com/downloads/)  
-[OpenCV 3.4.14 or later - Windows x64 build](https://opencv.org/releases/)  
+* Windows XP SP1 or later with x64 (not include ARM64) version
+* __A lots of picture files__ in single folder
+* [Microsoft Visual Studio Community 2019](https://visualstudio.microsoft.com/downloads/)
+* [OpenCV 3.4.14 or later - Windows x64 build](https://opencv.org/releases/)
 
 # How to build
 1. Open Visual Studio and create __empty windows desktop application__ solution
