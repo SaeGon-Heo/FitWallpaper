@@ -18,9 +18,12 @@ Windows light application for change wallpaper periodically
 1. Open Visual Studio and create __empty windows desktop application__ solution
 2. Change build target as __x64 - Release__
 3. Add __FitWallpaper.cpp__
-4. Link __OpenCV header and lib__ (You may google about this. It's easy.)
+4. Link __OpenCV header and lib__. You may google about this. It's easy.  
+   But __don't use opencv_world[version]d.lib__ which for debug.
 5. Build
-6. Copy __FitWallpaper.exe__ in Solution\x64\Release and __opencv_world[version].dll__ in OpenCV\build\x64\vc15\bin to any location you like.
+6. Copy __FitWallpaper.exe__ in Solution\x64\Release and  
+   __opencv_world[version].dll__ in OpenCV\build\x64\vc15\bin to any location you like.  
+   __Don't use opencv_world[version]d.dll__ which for debug.
 7. Run __FitWallpaper.exe__
 
 # Usage
