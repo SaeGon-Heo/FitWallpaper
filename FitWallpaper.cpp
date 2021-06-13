@@ -44,8 +44,10 @@ static constexpr const ULONGLONG MAX_PICTURE_FILESIZE       = 1024ULL * 1024ULL 
 static constexpr const char*     STR_MAX_PICTURE_FILESIZE   = "128MB";
 
 static constexpr const wchar_t*  WSTR_PROGRAM_NAME          = L"FitWallpaper.exe";
-static constexpr const char*     STR_WALLPAPER_FILENAME     = "wallpaper.png";
-static constexpr const wchar_t*  WSTR_WALLPAPER_FILENAME    = L"wallpaper.png";
+static constexpr const char*     STR_WALLPAPER_FNAME_PNG    = "wallpaper.png";
+static constexpr const wchar_t*  WSTR_WALLPAPER_FNAME_PNG   = L"wallpaper.png";
+static constexpr const char*     STR_WALLPAPER_FNAME_JPEG   = "wallpaper.jpg";
+static constexpr const wchar_t*  WSTR_WALLPAPER_FNAME_JPEG  = L"wallpaper.jpg";
 
 static constexpr const wchar_t*  WSTR_CMDLINE_UNREGISTER    = L"/u";
 static constexpr const wchar_t*  WSTR_CMDLINE_BOOT          = L"/boot";
@@ -65,13 +67,14 @@ using namespace std;
 
 int       isSystemBusy();
 int       updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int& sizePicList);
-int       processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpaceColor);
+int       processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpaceColor, const bool bUseJPEGFormat);
 
 void      DisplayInfoBoxA(LPCSTR szInfoMsg);
 void      DisplayErrorBoxW(LPCWSTR wszErrorMsg);
 
 int       registerRunAtStartupReg(const wchar_t* wszDirWorking);
 int       unregisterRunAtStartupReg();
+int       updateJPEGImportQualityReg();
 ULONGLONG getLastChangedReg();
 int       updateLastChangedReg();
 int       unregisterKeyFromReg();
@@ -122,6 +125,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     wchar_t wWallpaperPath[MAX_PATH] = L"";
     int emptySpaceColor = CONF_DEFAULT_EMPTY_SPACE_COLOR;
     int periodInMinute = CONF_DEFAULT_PERIOD_IN_MINUTE;
+    bool bUseJPEGFormat = true;
+    
+    // Windows 8 or later use PNG format which is natively supported
+    if (IsWindows8OrGreater()) {
+        bUseJPEGFormat = false;
+    }
 
     // check current directory
     {
@@ -167,7 +176,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
 
         // check length
-        if (wcslen(wDirWorking) >= (MAX_PATH - wcslen(WSTR_WALLPAPER_FILENAME) - 1 - 1)) {
+        if (wcslen(wDirWorking) >= (MAX_PATH - wcslen(WSTR_WALLPAPER_FNAME_JPEG) - 1 - 1)) {
             DisplayErrorBoxW(L"A current directory is too long!");
             return -1;
         }
@@ -182,7 +191,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
         wcscat_s(wWallpaperPath, wDirWorking);
         wcscat_s(wWallpaperPath, L"\\");
-        wcscat_s(wWallpaperPath, WSTR_WALLPAPER_FILENAME);
+        if (bUseJPEGFormat)
+            wcscat_s(wWallpaperPath, WSTR_WALLPAPER_FNAME_JPEG);
+        else
+            wcscat_s(wWallpaperPath, WSTR_WALLPAPER_FNAME_PNG);
     }
 
     // update run at startup registry
@@ -190,6 +202,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     if (0 == wcslen(lpCmdLine) && !bRunning) {
         if (-1 == registerRunAtStartupReg(wDirWorking)) return -1;
         DisplayInfoBoxA("Run at startup registry is updated.\nPlease, run a program again if program's location is changed.");
+
+        // multi-monitor check
+        if (1 < GetSystemMetrics(SM_CMONITORS))
+            DisplayInfoBoxA("This program doesn't support multi-monitor\nYou may continue to use this program\nBut how wallpaper be applied is unpredictable");
+
+        // JPEGImportQuality registry check
+        if (-1 == updateJPEGImportQualityReg()) return -1;
+
+        // Theme roaming check
+        if (IsWindows8OrGreater())
+            DisplayInfoBoxA(
+                "You may turn off <Theme roaming> in [Settings App -> User Accounts -> Sync your settings]\n"
+                "Because there are compression for roamed themes if it exceed a limit");
     }
 
     // file operation
@@ -481,15 +506,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
         CloseHandle(hMutexProcessing);
 
-        if (-1 == processWallpaper(pStart, 1, emptySpaceColor)) {
-            return -1;
-        }
-        if (0 == SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE)) {
-            DisplayErrorBoxW(L"Failed to set wallpaper using WINAPI!");
+        if (-1 == processWallpaper(pStart, 1, emptySpaceColor, bUseJPEGFormat)) {
             return -1;
         }
 
-        // exit
+        // set wallpaper and exit
+        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
         return 0;
     }
 
@@ -534,16 +556,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             HeapFree(GetProcessHeap(), 0, picList);
             return -1;
         }
-        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor)) {
-            HeapFree(GetProcessHeap(), 0, picList);
-            return -1;
-        }
-        if (0 == SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE)) {
-            DisplayErrorBoxW(L"Failed to set wallpaper using WINAPI!");
+        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, bUseJPEGFormat)) {
             HeapFree(GetProcessHeap(), 0, picList);
             return -1;
         }
 
+        // set wallpaper and exit
+        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
         HeapFree(GetProcessHeap(), 0, picList);
         return 0;
     }
@@ -600,36 +619,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
         // update picList and process wallpaper file
         if (-1 == updatePictureList(wDirPicture, picList, sizePicList)) break;
-        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor)) break;
+        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, bUseJPEGFormat)) break;
 
         // close handle which has connection with FitWallpaper::Processing mutex
         CloseHandle(hMutexProcessing);
 
-        int iRetry = 0;
-        do {
-            // set wallpaper
-            if (0 != SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE))
-                break;
-
-            // if failed, retry in 1min, 2mins, 3mins, ... , 15mins
-            // after 15mins popup message and retry the whole process
-            iRetry++;
-            if (16 == iRetry) {
-                DisplayErrorBoxW(L"Failed to set wallpaper using WINAPI!");
-                HeapFree(GetProcessHeap(), 0, picList);
-                CloseHandle(hMutexRunning);
-                return -1;
-            }
-
-            Sleep(iRetry * 60000UL);
-        } while (true);
-
-        if (16 != iRetry) {
-            // update lastChanged value in registry
-            updateLastChangedReg();
-            // wait until next update time
-            Sleep(periodInMinute * 60000UL);
-        }
+        // set wallpaper
+        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
+        // update lastChanged value in registry
+        updateLastChangedReg();
+        // wait until next update time
+        Sleep(periodInMinute * 60000UL);
     }
 
     // when program reached here, there were something wrong
@@ -798,7 +798,7 @@ int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePic
 } // updatePictureList
 
 // return 0 (ok) or -1 (error)
-int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpaceColor) {
+int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpaceColor, const bool bUseJPEGFormat) {
     if (emptySpaceColor < MIN_EMPTY_SPACE_COLOR || emptySpaceColor > MAX_EMPTY_SPACE_COLOR) {
         DisplayErrorBoxW(L"An emptySpaceColor value is incorrect!");
         return -1;
@@ -872,105 +872,120 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpa
     const double fx = (double)desktop_x / input.cols;
     const double fy = (double)desktop_y / input.rows;
 
-    if (fx > fy)
+    // resize only if scale value is not 1.0
+    if (fx > fy && fy != 1.0)
         resize(input, input, Size(), fy, fy, INTER_CUBIC);
-    else
+    else if (fx <= fy && fx != 1.0)
         resize(input, input, Size(), fx, fx, INTER_CUBIC);
 
-    if (inputChannels == 4) {
-        for (int i = 0; i < input.rows; i++) {
-            for (int j = 0; j < input.cols; j++)
-            {
-                Vec4b& v = input.at<Vec4b>(i, j);
-                if (v[3] == 0) v = Scalar(0, 0, 0, 0);
+    // if empty space exist
+    if (input.cols < desktop_x || input.rows < desktop_y) {
+        if (inputChannels == 4) {
+            for (int i = 0; i < input.rows; i++) {
+                for (int j = 0; j < input.cols; j++)
+                {
+                    Vec4b& v = input.at<Vec4b>(i, j);
+                    if (v[3] == 0) v = Scalar(0, 0, 0, 0);
+                }
             }
         }
-    }
 
-    // fallback color is white
-    int esColorB = 255, esColorG = 255, esColorR = 255;
+        // fallback color is white
+        int esColorB = 255, esColorG = 255, esColorR = 255;
 
-    if (emptySpaceColor == EMPTY_SPACE_COLOR_D) {
-        Mat m = input.reshape(1, input.rows * input.cols);
-        m.convertTo(m, CV_32F);
-        Mat labels, centers;
+        if (emptySpaceColor == EMPTY_SPACE_COLOR_D) {
+            Mat m = input.reshape(1, input.rows * input.cols);
+            m.convertTo(m, CV_32F);
+            Mat labels, centers;
 
-        kmeans(m, 6, labels, TermCriteria(TermCriteria::COUNT | TermCriteria::EPS, 10, 1.0),
-            1, KMEANS_RANDOM_CENTERS, centers);
+            kmeans(m, 6, labels, TermCriteria(TermCriteria::COUNT | TermCriteria::EPS, 10, 1.0),
+                1, KMEANS_RANDOM_CENTERS, centers);
 
-        int hist[6] = {};
-        for (int i = 0; i < labels.rows; i++)
-            hist[labels.at<int>(i, 0)]++;
+            int hist[6] = {};
+            for (int i = 0; i < labels.rows; i++)
+                hist[labels.at<int>(i, 0)]++;
 
-        int maxIdx = -1;
+            int maxIdx = -1;
+
+            if (inputChannels == 4) {
+                int max = 0;
+                for (int i = 0; i < 6; i++) {
+                    if (int(centers.at<float>(i, 3)) >= 192 && hist[i] > max) {
+                        max = hist[i];
+                        maxIdx = i;
+                    }
+                }
+
+                if (maxIdx != -1) {
+                    esColorB = int(centers.at<float>(maxIdx, 0));
+                    esColorG = int(centers.at<float>(maxIdx, 1));
+                    esColorR = int(centers.at<float>(maxIdx, 2));
+                }
+            }
+            else {
+                maxIdx = int(distance(hist, max_element(hist, hist + 6)));
+                esColorB = int(centers.at<float>(maxIdx, 0));
+                if (inputChannels == 3) {
+                    esColorG = int(centers.at<float>(maxIdx, 1));
+                    esColorR = int(centers.at<float>(maxIdx, 2));
+                }
+                else if (inputChannels == 1) {
+                    esColorG = esColorB;
+                    esColorR = esColorB;
+                }
+            }
+        }
+        else if (emptySpaceColor == EMPTY_SPACE_COLOR_B) {
+            esColorB = 0;
+            esColorG = 0;
+            esColorR = 0;
+        }
 
         if (inputChannels == 4) {
-            int max = 0;
-            for (int i = 0; i < 6; i++) {
-                if (int(centers.at<float>(i, 3)) >= 192 && hist[i] > max) {
-                    max = hist[i];
-                    maxIdx = i;
+            for (int i = 0; i < input.rows; i++) {
+                for (int j = 0; j < input.cols; j++)
+                {
+                    Vec4b& v = input.at<Vec4b>(i, j);
+                    if (v[3] != 255) {
+                        v[0] = esColorB + (v[0] - esColorB) * v[3] / 255;
+                        v[1] = esColorG + (v[1] - esColorG) * v[3] / 255;
+                        v[2] = esColorR + (v[2] - esColorR) * v[3] / 255;
+                    }
                 }
             }
-
-            if (maxIdx != -1) {
-                esColorB = int(centers.at<float>(maxIdx, 0));
-                esColorG = int(centers.at<float>(maxIdx, 1));
-                esColorR = int(centers.at<float>(maxIdx, 2));
-            }
+            cvtColor(input, input, COLOR_BGRA2BGR);
         }
-        else {
-            maxIdx = int(distance(hist, max_element(hist, hist + 6)));
-            esColorB = int(centers.at<float>(maxIdx, 0));
-            if (inputChannels == 3) {
-                esColorG = int(centers.at<float>(maxIdx, 1));
-                esColorR = int(centers.at<float>(maxIdx, 2));
-            }
-            else if (inputChannels == 1) {
-                esColorG = esColorB;
-                esColorR = esColorB;
-            }
+
+        int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
+
+        if (input.cols < desktop_x) {
+            int diff = desktop_x - input.cols;
+            bLeft = bRight = diff / 2;
+            if (diff % 2 == 1) bLeft++;
         }
-    }
-    else if (emptySpaceColor == EMPTY_SPACE_COLOR_B) {
-        esColorB = 0;
-        esColorG = 0;
-        esColorR = 0;
-    }
-
-    if (inputChannels == 4) {
-        for (int i = 0; i < input.rows; i++) {
-            for (int j = 0; j < input.cols; j++)
-            {
-                Vec4b& v = input.at<Vec4b>(i, j);
-                if (v[3] != 255) {
-                    v[0] = esColorB + (v[0] - esColorB) * v[3] / 255;
-                    v[1] = esColorG + (v[1] - esColorG) * v[3] / 255;
-                    v[2] = esColorR + (v[2] - esColorR) * v[3] / 255;
-                }
-            }
+        if (input.rows < desktop_y) {
+            int diff = desktop_y - input.rows;
+            bTop = bBottom = diff / 2;
+            if (diff % 2 == 1) bBottom++;
         }
-        cvtColor(input, input, COLOR_BGRA2BGR);
+
+        copyMakeBorder(input, input,
+            bTop, bBottom, bLeft, bRight,
+            BORDER_CONSTANT, Scalar(esColorB, esColorG, esColorR));
     }
 
-    int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
+    int ret = -1;
+    if (bUseJPEGFormat) {
+        vector<int> params;
+        params.push_back(IMWRITE_JPEG_QUALITY);
+        params.push_back(100);
 
-    if (input.cols < desktop_x) {
-        int diff = desktop_x - input.cols;
-        bLeft = bRight = diff / 2;
-        if (diff % 2 == 1) bLeft++;
+        ret = imwrite(STR_WALLPAPER_FNAME_JPEG, input, params);
     }
-    if (input.rows < desktop_y) {
-        int diff = desktop_y - input.rows;
-        bTop = bBottom = diff / 2;
-        if (diff % 2 == 1) bBottom++;
-    }
+    else
+        ret = imwrite(STR_WALLPAPER_FNAME_PNG, input);
 
-    copyMakeBorder(input, input,
-        bTop, bBottom, bLeft, bRight,
-        BORDER_CONSTANT, Scalar(esColorB, esColorG, esColorR));
-
-    if (imwrite(STR_WALLPAPER_FILENAME, input))
+    if (ret)
         return 0;
     else {
         DisplayErrorBoxW(L"Failed to write wallpaper file!");
@@ -1117,6 +1132,59 @@ int unregisterRunAtStartupReg() {
 
     return 0;
 } // unregisterRunAtStartupReg
+
+// return 0 (ok) or -1 (error)
+int updateJPEGImportQualityReg() {
+    HKEY hKey;
+    DWORD regType = REG_DWORD;
+    DWORD cbSize = sizeof(DWORD);
+    DWORD value = 0;
+
+    LSTATUS lResult = RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Control Panel\\Desktop",
+        0, KEY_QUERY_VALUE | KEY_SET_VALUE, &hKey);
+
+    if (ERROR_SUCCESS == lResult) {
+        lResult = RegQueryValueExW(hKey,
+            L"JPEGImportQuality",
+            NULL,
+            &regType,
+            (BYTE*)&value,
+            &cbSize);
+
+        if (ERROR_SUCCESS != lResult && ERROR_FILE_NOT_FOUND != lResult) {
+            DisplayErrorBoxW(L"Failed to query JPEGImportQuality value from registry! (updateJPEGImportQualityReg)");
+            return -1;
+        }
+
+        if (value < 100 || ERROR_FILE_NOT_FOUND == lResult) {
+            value = 100;
+            lResult = RegSetValueExW(hKey,
+                L"JPEGImportQuality",
+                0,
+                REG_DWORD,
+                (BYTE*)&value,
+                (DWORD)sizeof(DWORD));
+
+            RegCloseKey(hKey);
+
+            if (ERROR_SUCCESS != lResult) {
+                DisplayErrorBoxW(L"Failed to write JPEGImportQuality value into registry! (updateJPEGImportQualityReg)");
+                return -1;
+            }
+            else if (!IsWindows8OrGreater()) {
+                DisplayInfoBoxA("Please, restart your computer for take effect of JPEGImportQuality registry");
+            }
+        }
+    }
+    else {
+        DisplayErrorBoxW(L"Failed to retrive Desktop key from registry! (updateJPEGImportQualityReg)");
+        return -1;
+    }
+
+    return 0;
+} // updateJPEGImportQualityReg
+
 
 // return last changed time in ms from registry
 // if lastChanged value not found or error, return 0ULL.
