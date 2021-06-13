@@ -501,14 +501,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             CloseHandle(hMutexProcessing);
-            DisplayInfoBoxA("Plase try after a wallpaper is changed! It's soon!");
+            DisplayInfoBoxA("Please retry after a wallpaper is changed! It's soon!");
             return 0;
         }
         CloseHandle(hMutexProcessing);
 
-        if (-1 == processWallpaper(pStart, 1, emptySpaceColor, bUseJPEGFormat)) {
-            return -1;
-        }
+        if (-1 == processWallpaper(pStart, 1, emptySpaceColor, bUseJPEGFormat)) return -1;
 
         // set wallpaper and exit
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
@@ -547,7 +545,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             CloseHandle(hMutexProcessing);
             HeapFree(GetProcessHeap(), 0, picList);
-            DisplayInfoBoxA("Plase try after a wallpaper is changed! It's soon!");
+            DisplayInfoBoxA("Please retry after a wallpaper is changed! It's soon!");
             return 0;
         }
         CloseHandle(hMutexProcessing);
@@ -878,8 +876,8 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpa
     else if (fx <= fy && fx != 1.0)
         resize(input, input, Size(), fx, fx, INTER_CUBIC);
 
-    // if empty space exist
-    if (input.cols < desktop_x || input.rows < desktop_y) {
+    // if empty space exist or image has alpha (transparancy) data (BGRA)
+    if (input.cols < desktop_x || input.rows < desktop_y || inputChannels == 4) {
         if (inputChannels == 4) {
             for (int i = 0; i < input.rows; i++) {
                 for (int j = 0; j < input.cols; j++)
