@@ -103,8 +103,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     if (wcslen(WSTR_CMDLINE_UNREGISTER) == wcslen(lpCmdLine) &&
         0 == wcsncmp(lpCmdLine, WSTR_CMDLINE_UNREGISTER, wcslen(WSTR_CMDLINE_UNREGISTER)))
     {
-        unregisterRunAtStartupReg();
-        unregisterKeyFromReg();
+        if (-1 == unregisterRunAtStartupReg()) return -1;
+        if (-1 == unregisterKeyFromReg()) return -1;
         return 0;
     }
     
@@ -627,7 +627,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         // set wallpaper
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
         // update lastChanged value in registry
-        updateLastChangedReg();
+        if (-1 == updateLastChangedReg()) break;
         // wait until next update time
         Sleep(periodInMinute * 60000UL);
     }
