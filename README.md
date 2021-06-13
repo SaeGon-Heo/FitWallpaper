@@ -1,7 +1,7 @@
 # FitWallpaper
 Windows light application for change wallpaper periodically
 
-* No GUI
+* No UI
 * Wallpaper only applied via Fit mode
 * Image is selected randomly in folder
 * 3 Options for the empty space color (Black, White, __Dominant Color__)
@@ -15,19 +15,19 @@ Windows light application for change wallpaper periodically
 * [OpenCV 3.4.14 or later - Windows x64 build](https://opencv.org/releases/)
 
 # How to build
-1. Open Visual Studio and create __empty windows desktop application__ solution
-2. Change build target as __x64 - Release__
-3. Add __FitWallpaper.cpp__
+1. Open Visual Studio and create __empty windows desktop application__ solution.
+2. Change build target to __x64 - Release__.
+3. Add __FitWallpaper.cpp__.
 4. Link __OpenCV header and lib__. You may google about this. It's easy.  
    But __don't use opencv_world[version]d.lib__ which for debug.
-5. Build
+5. Build.
 6. Copy __FitWallpaper.exe__ in Solution\x64\Release and  
    __opencv_world[version].dll__ in OpenCV\build\x64\vc15\bin to any location you like.  
    __Don't use opencv_world[version]d.dll__ which for debug.
-7. Run __FitWallpaper.exe__
+7. Run __FitWallpaper.exe__.
 
 # Usage
-* Run program will register __run at startup__ automatically
+* Run program will register __run at startup__ automatically.
 * If there are no config file, program create it and exit. You have to __edit it__.
 * For uninstall, run __stop.cmd__.
 * For reload config, run __stop.cmd__ then run __FitWallpaper.exe__ again.
@@ -35,4 +35,5 @@ Windows light application for change wallpaper periodically
 * While program is running, you can change wallpaper immediately by run __FitWallpaper.exe__ again.
 
 # Trivia
-* __I know single source code is really bad__. But I didn't think this program could be over 1000 lines... Sorry about this point.
+* __I know single source code is really bad__.  
+  But I didn't think this program could be over 1000 lines... Sorry about this point.  
