@@ -1,7 +1,9 @@
 # FitWallpaper
 Windows light application for change wallpaper periodically
 
+* __KEEP IN MIND COPYRIGHT__ Any file created by FitWallpaper follows an original one's copyright.
 * No UI
+* A portable application
 * Wallpaper only applied via Fit mode
 * Image is selected randomly in folder
 * 3 Options for the empty space color (Black, White, __Dominant Color__)
