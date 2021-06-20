@@ -300,18 +300,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     "# Picture Directory - up to %d Pictures / each file up to %s\n"
                     "# Support format: %s\n"
                     "dirPicture = D:\\Pictures\n"
+                    "\n"
                     "# Fill an empty space with selected color\n"
                     "# 0: Black, 1: White, 2: Dominant Color (Default: %d)\n"
                     "emptySpaceColor = %d\n"
+                    "\n"
                     "# Change picture every X minute(s) [15 ~ 1440] (Default: %d)\n"
                     "periodInMinute = %d\n"
+                    "\n"
                     "# Upscale mode (Default: %d)\n"
                     "# 0: Don't upscale\n"
                     "# 1: Upscale picture up to 2x with filter\n"
                     "# 2: Upscale picture up to 2x without filter\n"
                     "# 3: Upscale picture to the screen size with filter\n"
                     "# 4: Upscale picture to the screen size without filter\n"
-                    "upscaleMode = %d\n",
+                    "upscaleMode = %d",
                     MAX_PICTURE_NUMBER, STR_MAX_PICTURE_FILESIZE,
                     szImageExtList,
                     CONF_DEFAULT_EMPTY_SPACE_COLOR, CONF_DEFAULT_EMPTY_SPACE_COLOR,
@@ -1047,26 +1050,26 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const int em
                 addWeighted(input, 1.5, gau, -0.5, 0, input);
             }
         }
+    }
 
-        // if empty space exist
-        if (input.cols < desktop_x || input.rows < desktop_y) {
-            int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
+    // if empty space exist
+    if (input.cols < desktop_x || input.rows < desktop_y) {
+        int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
 
-            if (input.cols < desktop_x) {
-                int diff = desktop_x - input.cols;
-                bLeft = bRight = diff / 2;
-                if (diff % 2 == 1) bLeft++;
-            }
-            if (input.rows < desktop_y) {
-                int diff = desktop_y - input.rows;
-                bTop = bBottom = diff / 2;
-                if (diff % 2 == 1) bBottom++;
-            }
-
-            copyMakeBorder(input, input,
-                bTop, bBottom, bLeft, bRight,
-                BORDER_CONSTANT, Scalar(esColorB, esColorG, esColorR));
+        if (input.cols < desktop_x) {
+            int diff = desktop_x - input.cols;
+            bLeft = bRight = diff / 2;
+            if (diff % 2 == 1) bLeft++;
         }
+        if (input.rows < desktop_y) {
+            int diff = desktop_y - input.rows;
+            bTop = bBottom = diff / 2;
+            if (diff % 2 == 1) bBottom++;
+        }
+
+        copyMakeBorder(input, input,
+            bTop, bBottom, bLeft, bRight,
+            BORDER_CONSTANT, Scalar(esColorB, esColorG, esColorR));
     }
 
     int ret = -1;
