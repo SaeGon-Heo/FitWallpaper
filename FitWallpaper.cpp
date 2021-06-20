@@ -16,8 +16,10 @@
 #include <VersionHelpers.h>
 #include <algorithm>
 #include <vector>
+#include <math.h>
 
-static constexpr const auto BUSY_CPU_USAGE_THRESHOLD       = 40;
+static constexpr const auto BUSYSTATE_CPU_USAGE_THRESHOLD  = 40;
+static constexpr const auto BUSYSTATE_CPU_USAGE_CHK_INTVAL = 5;
 
 static constexpr const auto BUSYSTATE_NOT_BUSY             = 0;
 static constexpr const auto BUSYSTATE_BUSY                 = 1;
@@ -31,10 +33,19 @@ static constexpr const auto MAX_EMPTY_SPACE_COLOR          = 2;
 static constexpr const auto MIN_PERIOD_IN_MINUTE           = 15;
 static constexpr const auto MAX_PERIOD_IN_MINUTE           = 1440;
 
+static constexpr const auto MIN_UPSCALE_MODE               = 0;
+static constexpr const auto UPSCALE_MODE_DONT_UPSCALE      = 0;
+static constexpr const auto UPSCALE_MODE_UPSCALE_2X_F      = 1; 
+static constexpr const auto UPSCALE_MODE_UPSCALE_2X        = 2;
+static constexpr const auto UPSCALE_MODE_UPSCALE_SCR_F     = 3; 
+static constexpr const auto UPSCALE_MODE_UPSCALE_SCR       = 4;
+static constexpr const auto MAX_UPSCALE_MODE               = 4;
+
 static constexpr const auto CONF_DEFAULT_EMPTY_SPACE_COLOR = EMPTY_SPACE_COLOR_D;
 static constexpr const auto CONF_DEFAULT_PERIOD_IN_MINUTE  = 30;
+static constexpr const auto CONF_DEFAULT_UPSCALE_MODE      = UPSCALE_MODE_UPSCALE_2X_F;
 
-static constexpr const auto MAX_CONFIG_FILE_LENGTH         = 1024;
+static constexpr const auto MAX_CONFIG_FILE_LENGTH         = 1536;
 static constexpr const auto MAX_PICTURE_NUMBER             = 100000;
 static constexpr const auto MAX_IMAGE_EXT_LENGTH           = 4;
 
@@ -58,6 +69,8 @@ static constexpr const char*     STR_CONF_EMPTY_SPACE_COLOR = "emptySpaceColor";
 static constexpr const auto      LEN_CONF_EMPTY_SPACE_COLOR = 15;
 static constexpr const char*     STR_CONF_PERIOD_IN_MINUTE  = "periodInMinute";
 static constexpr const auto      LEN_CONF_PERIOD_IN_MINUTE  = 14;
+static constexpr const char*     STR_CONF_UPSCALE_MODE      = "upscaleMode";
+static constexpr const auto      LEN_CONF_UPSCALE_MODE      = 11;
 
 static constexpr const char*     STR_IMAGE_EXT_LIST[]       = {  "jpeg",  "jpg",  "jpe",  "png",  "bmp",  "tif",  "tiff" };
 static constexpr const wchar_t*  WSTR_IMAGE_EXT_LIST[]      = { L"jpeg", L"jpg", L"jpe", L"png", L"bmp", L"tif", L"tiff" };
@@ -67,7 +80,7 @@ using namespace std;
 
 int       isSystemBusy();
 int       updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int& sizePicList);
-int       processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpaceColor, const bool bUseJPEGFormat);
+int       processWallpaper(const wchar_t* picList, const int sizePicList, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat);
 
 void      DisplayInfoBoxA(LPCSTR szInfoMsg);
 void      DisplayErrorBoxW(LPCWSTR wszErrorMsg);
@@ -107,7 +120,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         if (-1 == unregisterKeyFromReg()) return -1;
         return 0;
     }
-    
+
     // check FitWallpaper::Running mutex for single instance
     const HANDLE hMutexRunning = CreateMutexA(NULL, TRUE, "FitWallpaper::Running");
     if (NULL == hMutexRunning) {
@@ -125,6 +138,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     wchar_t wWallpaperPath[MAX_PATH] = L"";
     int emptySpaceColor = CONF_DEFAULT_EMPTY_SPACE_COLOR;
     int periodInMinute = CONF_DEFAULT_PERIOD_IN_MINUTE;
+    int upscaleMode = CONF_DEFAULT_UPSCALE_MODE;
     bool bUseJPEGFormat = true;
     
     // Windows 8 or later use PNG format which is natively supported
@@ -290,11 +304,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     "# 0: Black, 1: White, 2: Dominant Color (Default: %d)\n"
                     "emptySpaceColor = %d\n"
                     "# Change picture every X minute(s) [15 ~ 1440] (Default: %d)\n"
-                    "periodInMinute = %d",
+                    "periodInMinute = %d\n"
+                    "# Upscale mode (Default: %d)\n"
+                    "# 0: Don't upscale\n"
+                    "# 1: Upscale picture up to 2x with filter\n"
+                    "# 2: Upscale picture up to 2x without filter\n"
+                    "# 3: Upscale picture to the screen size with filter\n"
+                    "# 4: Upscale picture to the screen size without filter\n"
+                    "upscaleMode = %d\n",
                     MAX_PICTURE_NUMBER, STR_MAX_PICTURE_FILESIZE,
                     szImageExtList,
                     CONF_DEFAULT_EMPTY_SPACE_COLOR, CONF_DEFAULT_EMPTY_SPACE_COLOR,
-                    CONF_DEFAULT_PERIOD_IN_MINUTE, CONF_DEFAULT_PERIOD_IN_MINUTE))
+                    CONF_DEFAULT_PERIOD_IN_MINUTE, CONF_DEFAULT_PERIOD_IN_MINUTE,
+                    CONF_DEFAULT_UPSCALE_MODE, CONF_DEFAULT_UPSCALE_MODE))
                 {
                     fclose(fp);
                     DisplayErrorBoxW(L"Failed to create default config.txt data!");
@@ -457,6 +479,32 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                         return -1;
                     }
                 }
+                // upscaleMode
+                else if (lenCurConf > LEN_CONF_UPSCALE_MODE &&
+                    0 == strncmp(pStart, STR_CONF_UPSCALE_MODE, LEN_CONF_UPSCALE_MODE))
+                {
+                    pStart += LEN_CONF_UPSCALE_MODE;
+                    while (*pStart == ' ' || *pStart == '\t') pStart++;
+                    if (*pStart != '=') continue;
+                    pStart++;
+                    while (*pStart == ' ' || *pStart == '\t') pStart++;
+
+                    const size_t lenUpscaleMode = strnlen_s(pStart, 2);
+                    if (lenUpscaleMode == 0) {
+                        DisplayErrorBoxW(L"A upscaleMode value is empty!");
+                        return -1;
+                    }
+                    else if (lenUpscaleMode == 2) {
+                        DisplayErrorBoxW(L"A upscaleMode value's length must be 1!");
+                        return -1;
+                    }
+
+                    upscaleMode = *pStart - '0';
+                    if (upscaleMode < MIN_UPSCALE_MODE || upscaleMode > MAX_UPSCALE_MODE) {
+                        DisplayErrorBoxW(L"A upscaleMode value must be between 0 and 4 inclusive!");
+                        return -1;
+                    }
+                }
 
                 *pEnd = '\n';
             }
@@ -506,7 +554,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
         CloseHandle(hMutexProcessing);
 
-        if (-1 == processWallpaper(pStart, 1, emptySpaceColor, bUseJPEGFormat)) return -1;
+        if (-1 == processWallpaper(pStart, 1, emptySpaceColor, upscaleMode, bUseJPEGFormat)) return -1;
 
         // set wallpaper and exit
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
@@ -554,7 +602,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             HeapFree(GetProcessHeap(), 0, picList);
             return -1;
         }
-        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, bUseJPEGFormat)) {
+        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, upscaleMode, bUseJPEGFormat)) {
             HeapFree(GetProcessHeap(), 0, picList);
             return -1;
         }
@@ -592,7 +640,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
             if (BUSYSTATE_NOT_BUSY == busyState) break;
             
-            Sleep(60000);
+            Sleep(60000UL - BUSYSTATE_CPU_USAGE_CHK_INTVAL * 1000UL);
         } while (true);
 
         // check FitWallpaper::Processing mutex existance
@@ -617,7 +665,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
         // update picList and process wallpaper file
         if (-1 == updatePictureList(wDirPicture, picList, sizePicList)) break;
-        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, bUseJPEGFormat)) break;
+        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, upscaleMode, bUseJPEGFormat)) break;
 
         // close handle which has connection with FitWallpaper::Processing mutex
         CloseHandle(hMutexProcessing);
@@ -627,7 +675,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         // update lastChanged value in registry
         if (-1 == updateLastChangedReg()) break;
         // wait until next update time
-        Sleep(periodInMinute * 60000UL);
+        Sleep(periodInMinute * 60000UL - BUSYSTATE_CPU_USAGE_CHK_INTVAL * 1000UL);
     }
 
     // when program reached here, there were something wrong
@@ -668,8 +716,8 @@ int isSystemBusy() {
     const ULONGLONG kernel0 = ((ULONGLONG)ftKernel0.dwHighDateTime << 32) + ftKernel0.dwLowDateTime;
     const ULONGLONG user0 = ((ULONGLONG)ftUser0.dwHighDateTime << 32) + ftUser0.dwLowDateTime;
     
-    // wait 5 seconds
-    Sleep(5000);
+    // wait BUSYSTATE_CPU_USAGE_CHK_INTVAL seconds
+    Sleep(BUSYSTATE_CPU_USAGE_CHK_INTVAL * 1000);
 
     // get cpu usage stat after
     FILETIME ftIdle1, ftKernel1, ftUser1;
@@ -685,8 +733,9 @@ int isSystemBusy() {
     const ULONGLONG diffKernel = kernel1 - kernel0;
     const ULONGLONG diffUser = user1 - user0;
 
-    // assume that system is busy if cpu usage is over BUSY_CPU_USAGE_THRESHOLD(%) for 5 seconds
-    if (BUSY_CPU_USAGE_THRESHOLD < ((diffKernel + diffUser - diffIdle) * 100ULL / (diffKernel + diffUser))) {
+    // assume that system is busy if cpu usage is over
+    // BUSY_CPU_USAGE_THRESHOLD(%) for BUSYSTATE_CPU_USAGE_CHK_INTVAL seconds
+    if (BUSYSTATE_CPU_USAGE_THRESHOLD < ((diffKernel + diffUser - diffIdle) * 100ULL / (diffKernel + diffUser))) {
         return BUSYSTATE_BUSY;
     }
 
@@ -796,7 +845,7 @@ int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePic
 } // updatePictureList
 
 // return 0 (ok) or -1 (error)
-int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpaceColor, const bool bUseJPEGFormat) {
+int processWallpaper(const wchar_t* picList, const int sizePicList, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat) {
     if (emptySpaceColor < MIN_EMPTY_SPACE_COLOR || emptySpaceColor > MAX_EMPTY_SPACE_COLOR) {
         DisplayErrorBoxW(L"An emptySpaceColor value is incorrect!");
         return -1;
@@ -859,24 +908,28 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpa
     }
 
     // convert to 8 bits color channel
-    convertScaleAbs(input, input);
+    normalize(input, input, 0, UCHAR_MAX, NORM_MINMAX, CV_8U);
 
     // save channel count of input
     const int inputChannels = input.channels();
 
-    // resize
+    // shrink if need
     const int desktop_x = GetSystemMetrics(SM_CXSCREEN);
     const int desktop_y = GetSystemMetrics(SM_CYSCREEN);
-    const double fx = (double)desktop_x / input.cols;
-    const double fy = (double)desktop_y / input.rows;
+    const double sx = (double)desktop_x / input.cols;
+    const double sy = (double)desktop_y / input.rows;
 
-    // resize only if scale value is not 1.0
-    if (fx > fy && fy != 1.0)
-        resize(input, input, Size(), fy, fy, INTER_CUBIC);
-    else if (fx <= fy && fx != 1.0)
-        resize(input, input, Size(), fx, fx, INTER_CUBIC);
+    // shrink only if scale value < 1.0
+    if (sx > sy && sy < 1.0)
+        resize(input, input, Size(), sy, sy, INTER_CUBIC);
+    else if (sx <= sy && sx < 1.0)
+        resize(input, input, Size(), sx, sx, INTER_CUBIC);
+
+    // fallback empty space color is white
+    int esColorB = 255, esColorG = 255, esColorR = 255;
 
     // if empty space exist or image has alpha (transparancy) data (BGRA)
+    // update empty space color
     if (input.cols < desktop_x || input.rows < desktop_y || inputChannels == 4) {
         if (inputChannels == 4) {
             for (int i = 0; i < input.rows; i++) {
@@ -887,9 +940,6 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpa
                 }
             }
         }
-
-        // fallback color is white
-        int esColorB = 255, esColorG = 255, esColorR = 255;
 
         if (emptySpaceColor == EMPTY_SPACE_COLOR_D) {
             Mat m = input.reshape(1, input.rows * input.cols);
@@ -953,23 +1003,70 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, int emptySpa
             }
             cvtColor(input, input, COLOR_BGRA2BGR);
         }
+    }
 
-        int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
+    // upscaleMode check
+    if (UPSCALE_MODE_DONT_UPSCALE < upscaleMode) {
+        // upscale if need
+        const double ux = (double)desktop_x / input.cols;
+        const double uy = (double)desktop_y / input.rows;
+        double upscale = 1.0;
 
-        if (input.cols < desktop_x) {
-            int diff = desktop_x - input.cols;
-            bLeft = bRight = diff / 2;
-            if (diff % 2 == 1) bLeft++;
+        // upscale only if scale value > 1.0
+        if (ux > uy && uy > 1.0) upscale = uy;
+        else if (ux <= uy && ux > 1.0) upscale = ux;
+
+        // To do upscale, scale factor must be bigger than 1.0
+        if (upscale > 1.0) {
+            // limit maximum scale by 2 if 2X option used
+            if (upscale > 2.0 && UPSCALE_MODE_UPSCALE_2X >= upscaleMode)
+                upscale = 2.0;
+
+            resize(input, input, Size(), upscale, upscale, INTER_CUBIC);
+
+            // if one of filter options (odd number) is selected
+            if (1 == (upscaleMode % 2)) {
+                int ksize;
+                if (upscale >= 2.0) ksize = 7;
+                else if (upscale >= sqrt(2.0)) ksize = 5;
+                else ksize = 3;
+
+                // unsharp masking
+                Mat gau;
+                GaussianBlur(input, gau, Size(ksize, ksize), 0);
+                addWeighted(input, 1.5, gau, -0.5, 0, input);
+
+                // laplacian sharpening
+                Mat lap;
+                Laplacian(input, lap, CV_16S);
+                convertScaleAbs(lap, lap);
+                addWeighted(input, 1.0, lap, -0.35, 0, input);
+
+                // unsharp masking again
+                GaussianBlur(input, gau, Size(ksize, ksize), 0);
+                addWeighted(input, 1.5, gau, -0.5, 0, input);
+            }
         }
-        if (input.rows < desktop_y) {
-            int diff = desktop_y - input.rows;
-            bTop = bBottom = diff / 2;
-            if (diff % 2 == 1) bBottom++;
-        }
 
-        copyMakeBorder(input, input,
-            bTop, bBottom, bLeft, bRight,
-            BORDER_CONSTANT, Scalar(esColorB, esColorG, esColorR));
+        // if empty space exist
+        if (input.cols < desktop_x || input.rows < desktop_y) {
+            int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
+
+            if (input.cols < desktop_x) {
+                int diff = desktop_x - input.cols;
+                bLeft = bRight = diff / 2;
+                if (diff % 2 == 1) bLeft++;
+            }
+            if (input.rows < desktop_y) {
+                int diff = desktop_y - input.rows;
+                bTop = bBottom = diff / 2;
+                if (diff % 2 == 1) bBottom++;
+            }
+
+            copyMakeBorder(input, input,
+                bTop, bBottom, bLeft, bRight,
+                BORDER_CONSTANT, Scalar(esColorB, esColorG, esColorR));
+        }
     }
 
     int ret = -1;
