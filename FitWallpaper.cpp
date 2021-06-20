@@ -35,15 +35,14 @@ static constexpr const auto MAX_PERIOD_IN_MINUTE           = 1440;
 
 static constexpr const auto MIN_UPSCALE_MODE               = 0;
 static constexpr const auto UPSCALE_MODE_DONT_UPSCALE      = 0;
-static constexpr const auto UPSCALE_MODE_UPSCALE_2X_F      = 1; 
-static constexpr const auto UPSCALE_MODE_UPSCALE_2X        = 2;
-static constexpr const auto UPSCALE_MODE_UPSCALE_SCR_F     = 3; 
-static constexpr const auto UPSCALE_MODE_UPSCALE_SCR       = 4;
-static constexpr const auto MAX_UPSCALE_MODE               = 4;
+static constexpr const auto UPSCALE_MODE_UPSCALE_UP_TO_2X  = 1;
+static constexpr const auto UPSCALE_MODE_UPSCALE_UP_TO_4X  = 2;
+static constexpr const auto UPSCALE_MODE_UPSCALE_SCR       = 3;
+static constexpr const auto MAX_UPSCALE_MODE               = 3;
 
 static constexpr const auto CONF_DEFAULT_EMPTY_SPACE_COLOR = EMPTY_SPACE_COLOR_D;
 static constexpr const auto CONF_DEFAULT_PERIOD_IN_MINUTE  = 30;
-static constexpr const auto CONF_DEFAULT_UPSCALE_MODE      = UPSCALE_MODE_UPSCALE_2X_F;
+static constexpr const auto CONF_DEFAULT_UPSCALE_MODE      = UPSCALE_MODE_UPSCALE_UP_TO_2X;
 
 static constexpr const auto MAX_CONFIG_FILE_LENGTH         = 1536;
 static constexpr const auto MAX_PICTURE_NUMBER             = 100000;
@@ -299,27 +298,26 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     "# Please save this as UTF8 encoding\n"
                     "# Picture Directory - up to %d Pictures / each file up to %s\n"
                     "# Support format: %s\n"
-                    "dirPicture = D:\\Pictures\n"
+                    "%s = D:\\Pictures\n"
                     "\n"
                     "# Fill an empty space with selected color\n"
                     "# 0: Black, 1: White, 2: Dominant Color (Default: %d)\n"
-                    "emptySpaceColor = %d\n"
+                    "%s = %d\n"
                     "\n"
                     "# Change picture every X minute(s) [15 ~ 1440] (Default: %d)\n"
-                    "periodInMinute = %d\n"
+                    "%s = %d\n"
                     "\n"
                     "# Upscale mode (Default: %d)\n"
                     "# 0: Don't upscale\n"
-                    "# 1: Upscale picture up to 2x with filter\n"
-                    "# 2: Upscale picture up to 2x without filter\n"
-                    "# 3: Upscale picture to the screen size with filter\n"
-                    "# 4: Upscale picture to the screen size without filter\n"
-                    "upscaleMode = %d",
+                    "# 1: Upscale picture up to 2x\n"
+                    "# 2: Upscale picture up to 4x\n"
+                    "# 3: Upscale picture to the screen size\n"
+                    "%s = %d",
                     MAX_PICTURE_NUMBER, STR_MAX_PICTURE_FILESIZE,
-                    szImageExtList,
-                    CONF_DEFAULT_EMPTY_SPACE_COLOR, CONF_DEFAULT_EMPTY_SPACE_COLOR,
-                    CONF_DEFAULT_PERIOD_IN_MINUTE, CONF_DEFAULT_PERIOD_IN_MINUTE,
-                    CONF_DEFAULT_UPSCALE_MODE, CONF_DEFAULT_UPSCALE_MODE))
+                    szImageExtList, STR_CONF_DIR_PICTURE,
+                    CONF_DEFAULT_EMPTY_SPACE_COLOR, STR_CONF_EMPTY_SPACE_COLOR, CONF_DEFAULT_EMPTY_SPACE_COLOR,
+                    CONF_DEFAULT_PERIOD_IN_MINUTE, STR_CONF_PERIOD_IN_MINUTE, CONF_DEFAULT_PERIOD_IN_MINUTE,
+                    CONF_DEFAULT_UPSCALE_MODE, STR_CONF_UPSCALE_MODE, CONF_DEFAULT_UPSCALE_MODE))
                 {
                     fclose(fp);
                     DisplayErrorBoxW(L"Failed to create default config.txt data!");
@@ -504,7 +502,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
                     upscaleMode = *pStart - '0';
                     if (upscaleMode < MIN_UPSCALE_MODE || upscaleMode > MAX_UPSCALE_MODE) {
-                        DisplayErrorBoxW(L"A upscaleMode value must be between 0 and 4 inclusive!");
+                        DisplayErrorBoxW(L"A upscaleMode value must be between 0 and 3 inclusive!");
                         return -1;
                     }
                 }
@@ -1022,33 +1020,13 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const int em
         // To do upscale, scale factor must be bigger than 1.0
         if (upscale > 1.0) {
             // limit maximum scale by 2 if 2X option used
-            if (upscale > 2.0 && UPSCALE_MODE_UPSCALE_2X >= upscaleMode)
+            if (upscale > 2.0 && UPSCALE_MODE_UPSCALE_UP_TO_2X == upscaleMode)
                 upscale = 2.0;
+            // limit maximum scale by 4 if 4X option used
+            if (upscale > 4.0 && UPSCALE_MODE_UPSCALE_UP_TO_4X == upscaleMode)
+                upscale = 4.0;
 
             resize(input, input, Size(), upscale, upscale, INTER_CUBIC);
-
-            // if one of filter options (odd number) is selected
-            if (1 == (upscaleMode % 2)) {
-                int ksize;
-                if (upscale >= 2.0) ksize = 7;
-                else if (upscale >= sqrt(2.0)) ksize = 5;
-                else ksize = 3;
-
-                // unsharp masking
-                Mat gau;
-                GaussianBlur(input, gau, Size(ksize, ksize), 0);
-                addWeighted(input, 1.5, gau, -0.5, 0, input);
-
-                // laplacian sharpening
-                Mat lap;
-                Laplacian(input, lap, CV_16S);
-                convertScaleAbs(lap, lap);
-                addWeighted(input, 1.0, lap, -0.35, 0, input);
-
-                // unsharp masking again
-                GaussianBlur(input, gau, Size(ksize, ksize), 0);
-                addWeighted(input, 1.5, gau, -0.5, 0, input);
-            }
         }
     }
 
