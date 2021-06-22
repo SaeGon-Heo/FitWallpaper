@@ -24,6 +24,12 @@ static constexpr const auto BUSYSTATE_CPU_USAGE_CHK_INTVAL = 5;
 static constexpr const auto BUSYSTATE_NOT_BUSY             = 0;
 static constexpr const auto BUSYSTATE_BUSY                 = 1;
 
+static constexpr const auto PIC_LIST_CHANGED               = 0;
+static constexpr const auto PIC_LIST_NOT_CHANGED           = 1;
+
+static constexpr const auto PROC_WALLPAPER_DONE            = 0;
+static constexpr const auto PROC_WALLPAPER_DUP_PICTURE     = 1;
+
 static constexpr const auto MIN_EMPTY_SPACE_COLOR          = 0;
 static constexpr const auto EMPTY_SPACE_COLOR_B            = 0;
 static constexpr const auto EMPTY_SPACE_COLOR_W            = 1;
@@ -79,7 +85,7 @@ using namespace std;
 
 int       isSystemBusy();
 int       updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int& sizePicList);
-int       processWallpaper(const wchar_t* picList, const int sizePicList, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat);
+int       processWallpaper(const wchar_t* picList, const int sizePicList, const bool bPicListChanged, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat);
 
 void      DisplayInfoBoxA(LPCSTR szInfoMsg);
 void      DisplayErrorBoxW(LPCWSTR wszErrorMsg);
@@ -300,8 +306,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     "# Support format: %s\n"
                     "%s = D:\\Pictures\n"
                     "\n"
-                    "# Fill an empty space with selected color\n"
-                    "# 0: Black, 1: White, 2: Dominant Color (Default: %d)\n"
+                    "# Fill an empty space with selected color (Default: %d)\n"
+                    "# 0: Black, 1: White, 2: Dominant Color\n"
                     "%s = %d\n"
                     "\n"
                     "# Change picture every X minute(s) [15 ~ 1440] (Default: %d)\n"
@@ -314,10 +320,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     "# 3: Upscale picture to the screen size\n"
                     "%s = %d",
                     MAX_PICTURE_NUMBER, STR_MAX_PICTURE_FILESIZE,
-                    szImageExtList, STR_CONF_DIR_PICTURE,
-                    CONF_DEFAULT_EMPTY_SPACE_COLOR, STR_CONF_EMPTY_SPACE_COLOR, CONF_DEFAULT_EMPTY_SPACE_COLOR,
-                    CONF_DEFAULT_PERIOD_IN_MINUTE, STR_CONF_PERIOD_IN_MINUTE, CONF_DEFAULT_PERIOD_IN_MINUTE,
-                    CONF_DEFAULT_UPSCALE_MODE, STR_CONF_UPSCALE_MODE, CONF_DEFAULT_UPSCALE_MODE))
+                    szImageExtList,
+                    STR_CONF_DIR_PICTURE,
+                    CONF_DEFAULT_EMPTY_SPACE_COLOR,
+                    STR_CONF_EMPTY_SPACE_COLOR, CONF_DEFAULT_EMPTY_SPACE_COLOR,
+                    CONF_DEFAULT_PERIOD_IN_MINUTE,
+                    STR_CONF_PERIOD_IN_MINUTE, CONF_DEFAULT_PERIOD_IN_MINUTE,
+                    CONF_DEFAULT_UPSCALE_MODE,
+                    STR_CONF_UPSCALE_MODE, CONF_DEFAULT_UPSCALE_MODE))
                 {
                     fclose(fp);
                     DisplayErrorBoxW(L"Failed to create default config.txt data!");
@@ -555,7 +565,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
         CloseHandle(hMutexProcessing);
 
-        if (-1 == processWallpaper(pStart, 1, emptySpaceColor, upscaleMode, bUseJPEGFormat)) return -1;
+        if (-1 == processWallpaper(pStart, 1, true, emptySpaceColor, upscaleMode, bUseJPEGFormat)) return -1;
 
         // set wallpaper and exit
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
@@ -603,7 +613,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             HeapFree(GetProcessHeap(), 0, picList);
             return -1;
         }
-        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, upscaleMode, bUseJPEGFormat)) {
+        if (-1 == processWallpaper(picList, sizePicList, true, emptySpaceColor, upscaleMode, bUseJPEGFormat)) {
             HeapFree(GetProcessHeap(), 0, picList);
             return -1;
         }
@@ -665,16 +675,25 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
 
         // update picList and process wallpaper file
-        if (-1 == updatePictureList(wDirPicture, picList, sizePicList)) break;
-        if (-1 == processWallpaper(picList, sizePicList, emptySpaceColor, upscaleMode, bUseJPEGFormat)) break;
+        const int bListChanged = updatePictureList(wDirPicture, picList, sizePicList);
+        if (-1 == bListChanged) break;
+
+        bool bPicListChanged = false;
+        if (PIC_LIST_CHANGED == bListChanged) bPicListChanged = true;
+
+        const int bWallpaperProcessed = processWallpaper(picList, sizePicList, bPicListChanged, emptySpaceColor, upscaleMode, bUseJPEGFormat);
+        if (-1 == bWallpaperProcessed) break;
 
         // close handle which has connection with FitWallpaper::Processing mutex
         CloseHandle(hMutexProcessing);
 
-        // set wallpaper
-        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
-        // update lastChanged value in registry
-        if (-1 == updateLastChangedReg()) break;
+        if (PROC_WALLPAPER_DONE == bWallpaperProcessed) {
+            // set wallpaper
+            SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)wWallpaperPath, SPIF_UPDATEINIFILE);
+            // update lastChanged value in registry
+            if (-1 == updateLastChangedReg()) break;
+        }
+
         // wait until next update time
         Sleep(periodInMinute * 60000UL - BUSYSTATE_CPU_USAGE_CHK_INTVAL * 1000UL);
     }
@@ -781,7 +800,7 @@ int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePic
     // compare modified time before after
     if (ftWriteBefore.dwHighDateTime == ftWrite.dwHighDateTime
         && ftWriteBefore.dwLowDateTime == ftWrite.dwLowDateTime)
-        return 1;
+        return PIC_LIST_NOT_CHANGED;
 
     // backup changed modified time
     ftWriteBefore = ftWrite;
@@ -842,11 +861,11 @@ int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePic
         return -1;
     }
 
-    return 0;
+    return PIC_LIST_CHANGED;
 } // updatePictureList
 
 // return 0 (ok) or -1 (error)
-int processWallpaper(const wchar_t* picList, const int sizePicList, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat) {
+int processWallpaper(const wchar_t* picList, const int sizePicList, const bool bPicListChanged, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat) {
     if (emptySpaceColor < MIN_EMPTY_SPACE_COLOR || emptySpaceColor > MAX_EMPTY_SPACE_COLOR) {
         DisplayErrorBoxW(L"An emptySpaceColor value is incorrect!");
         return -1;
@@ -856,19 +875,33 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const int em
         return -1;
     }
 
+    static int lastIdxSelected = -1;
+    int idxSelected = -1;
+    if (bPicListChanged) lastIdxSelected = -1;
+    // if picList data is not changed and sizePicList is only 1
+    // there are no need to update wallpaper
+    // because wallpaper which is only one is applied already
+    else if (1 == sizePicList) {
+        return PROC_WALLPAPER_DUP_PICTURE;
+    }
+
     Mat input = Mat();
     {
         FILE* fp = nullptr;
         long long sizePicture = -1;
 
-        unsigned int rndNumber = -1;
-        errno_t err = rand_s(&rndNumber);
-        if (err != 0) {
-            DisplayErrorBoxW(L"Failed to call rand_s function!");
-            return -1;
-        }
+        while (true) {
+            unsigned int rndNumber = -1;
+            errno_t err = rand_s(&rndNumber);
+            if (err != 0) {
+                DisplayErrorBoxW(L"Failed to call rand_s function!");
+                return -1;
+            }
 
-        const int idxSelected = int((double)rndNumber / ((double)UINT_MAX + 1) * sizePicList);
+            idxSelected = int((double)rndNumber / ((double)UINT_MAX + 1) * sizePicList);
+
+            if (idxSelected != lastIdxSelected) break;
+        }
 
         const wchar_t* pPath = picList;
         pPath += idxSelected * MAX_PATH;
@@ -1061,8 +1094,11 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const int em
     else
         ret = imwrite(STR_WALLPAPER_FNAME_PNG, input);
 
-    if (ret)
-        return 0;
+    if (ret) {
+        // save last index of picture used when success to write output
+        lastIdxSelected = idxSelected;
+        return PROC_WALLPAPER_DONE;
+    }
     else {
         DisplayErrorBoxW(L"Failed to write wallpaper file!");
         return -1;
