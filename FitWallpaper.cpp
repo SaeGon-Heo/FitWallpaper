@@ -1062,9 +1062,9 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const bool b
             resize(input, input, Size(), upscale, upscale, INTER_CUBIC);
 
             // unsharp masking to remove blur after resize
-            Mat gau;
             const int loop = int(log2(upscale) * 2.0) + 1;
             for (int i = 0; i < loop; i++) {
+                Mat gau;
                 GaussianBlur(input, gau, Size(3, 3), 0);
                 addWeighted(input, 1.5, gau, -0.5, 0, input);
             }
