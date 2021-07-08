@@ -923,17 +923,22 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const bool b
             DisplayErrorBoxW(L"Failed to get picture file's size!");
             return -1;
         }
+        else if (MAX_PICTURE_FILESIZE < sizePicture) {
+            fclose(fp);
+            DisplayErrorBoxW(L"A picture file's size is too big!");
+            return -1;
+        }
 
         vector<BYTE> picData(sizePicture);
         const size_t rdBytes = fread(&picData[0], sizeof(BYTE), sizePicture, fp);
+        fclose(fp);
+
         if (rdBytes != sizePicture) {
-            fclose(fp);
             DisplayErrorBoxW(L"Failed to read picture file!");
             return -1;
         }
 
         input = imdecode(move(picData), IMREAD_UNCHANGED);
-        fclose(fp);
     }
 
     if (input.empty()) {
