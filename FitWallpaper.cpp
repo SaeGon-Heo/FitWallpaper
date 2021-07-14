@@ -30,6 +30,9 @@ static constexpr const auto PIC_LIST_NOT_CHANGED           = 1;
 static constexpr const auto PROC_WALLPAPER_DONE            = 0;
 static constexpr const auto PROC_WALLPAPER_DUP_PICTURE     = 1;
 
+static constexpr const auto SUPPORTED_IMAGE_EXT            = 0;
+static constexpr const auto NOT_SUPPORTED_IMAGE_EXT        = 1;
+
 static constexpr const auto MIN_EMPTY_SPACE_COLOR          = 0;
 static constexpr const auto EMPTY_SPACE_COLOR_B            = 0;
 static constexpr const auto EMPTY_SPACE_COLOR_W            = 1;
@@ -708,8 +711,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// return BUSYSTATE_NOT_BUSY (not busy) or BUSYSTATE_BUSY (busy)
-// return -1 (error)
+// return BUSYSTATE_NOT_BUSY (not busy), BUSYSTATE_BUSY (busy) or -1 (error)
 int isSystemBusy() {
     // on vista or later, check UserNotificationState first.
     if (IsWindowsVistaOrGreater()) {
@@ -765,8 +767,8 @@ int isSystemBusy() {
 
 // check picture directory is modified
 // if so update picList and sizePicList data
-// return 0 (ok) or -1 (error)
-// return 1 (no need to update)
+// return PIC_LIST_CHANGED (ok) or -1 (error)
+// return PIC_LIST_NOT_CHANGED (no need to update)
 int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePicList) {
     if (nullptr == wDirPicture || nullptr == picList) {
         DisplayErrorBoxW(L"A wDirPicture or picList is null! (updatePictureList)");
@@ -827,7 +829,7 @@ int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePic
         if (0 != (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
             0 != (wfd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) ||
             // check file extension
-            0 != isSupportedImageFile(wfd.cFileName) ||
+            SUPPORTED_IMAGE_EXT != isSupportedImageFile(wfd.cFileName) ||
             // check filesize
             MAX_PICTURE_FILESIZE < (((ULONGLONG)wfd.nFileSizeHigh << 32) + wfd.nFileSizeLow) ||
             // check limit of pictures
@@ -864,7 +866,7 @@ int updatePictureList(const wchar_t* wDirPicture, wchar_t* picList, int &sizePic
     return PIC_LIST_CHANGED;
 } // updatePictureList
 
-// return 0 (ok) or -1 (error)
+// return PROC_WALLPAPER_DUP_PICTURE (no need to update), PROC_WALLPAPER_DONE (ok) or -1 (error)
 int processWallpaper(const wchar_t* picList, const int sizePicList, const bool bPicListChanged, const int emptySpaceColor, const int upscaleMode, const bool bUseJPEGFormat) {
     if (emptySpaceColor < MIN_EMPTY_SPACE_COLOR || emptySpaceColor > MAX_EMPTY_SPACE_COLOR) {
         DisplayErrorBoxW(L"An emptySpaceColor value is incorrect!");
@@ -890,18 +892,17 @@ int processWallpaper(const wchar_t* picList, const int sizePicList, const bool b
         FILE* fp = nullptr;
         long long sizePicture = -1;
 
-        while (true) {
-            unsigned int rndNumber = -1;
-            errno_t err = rand_s(&rndNumber);
-            if (err != 0) {
-                DisplayErrorBoxW(L"Failed to call rand_s function!");
-                return -1;
-            }
-
-            idxSelected = int((double)rndNumber / ((double)UINT_MAX + 1) * sizePicList);
-
-            if (idxSelected != lastIdxSelected) break;
+        unsigned int rndNumber = -1;
+        errno_t err = rand_s(&rndNumber);
+        if (err != 0) {
+            DisplayErrorBoxW(L"Failed to call rand_s function!");
+            return -1;
         }
+
+        idxSelected = int((double)rndNumber / ((double)UINT_MAX + 1) * sizePicList);
+
+        if (idxSelected == lastIdxSelected)
+            idxSelected = (idxSelected + 1) % sizePicList;
 
         const wchar_t* pPath = picList;
         pPath += idxSelected * MAX_PATH;
@@ -1477,7 +1478,7 @@ int checkFile(const wchar_t* file, const wchar_t* fileName) {
     return 0;
 } // checkFile
 
-// return 0 (ok and supported image) or -1 (error or not supported image or file)
+// return SUPPORTED_IMAGE_EXT (supported image), NOT_SUPPORTED_IMAGE_EXT (not supported image) or -1 (error)
 int isSupportedImageFile(const wchar_t* imageFileName) {
     if (nullptr == imageFileName) {
         DisplayErrorBoxW(L"An imageFileName is null! (isSupportedImageFile)");
@@ -1504,13 +1505,12 @@ int isSupportedImageFile(const wchar_t* imageFileName) {
 
             for (const wchar_t* szImageExt : WSTR_IMAGE_EXT_LIST) {
                 if (0 == _wcsnicmp(pExt, szImageExt, wcsnlen_s(szImageExt, MAX_IMAGE_EXT_LENGTH + 1)))
-                    return 0;
+                    return SUPPORTED_IMAGE_EXT;
             }
         }
     }
 
-    DisplayErrorBoxW(L"An imageFileName is not supported image file! (isSupportedImageFile)");
-    return -1;
+    return NOT_SUPPORTED_IMAGE_EXT;
 } // isSupportedImageFile
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
