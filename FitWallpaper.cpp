@@ -552,7 +552,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             return -1;
         }
         if (-1 == checkFile(pStart, L"picture file in argument")) return -1;
-        if (-1 == isSupportedImageFile(pStart)) return -1;
+        {
+            int result = isSupportedImageFile(pStart);
+            if (SUPPORTED_IMAGE_EXT != result) {
+                if (NOT_SUPPORTED_IMAGE_EXT == result)
+                    DisplayErrorBoxW(L"This file is not supported image file!");
+                return -1;
+            }
+        }
 
         // check FitWallpaper::Processing mutex existance
         // to exit when image is processing in another instance
